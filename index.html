@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LifePlan — Финансы</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app">
+
+    <aside class="sidebar">
+      <h2 class="logo">LifePlan<span>.</span></h2>
+
+     <nav>
+    <a href="#home" class="active" data-page="home">⌂ Главная</a>
+    <a href="#" data-modal="operations-modal">↔ Операции</a>
+    <a href="#" data-modal="goals-modal">◎ Накопления</a>
+    <a href="#" data-modal="statistics-modal">▥ Статистика</a>
+</nav>
+
+      <div class="sidebar-bottom">
+        <p>Твой финансовый помощник</p>
+        <strong>LifePlan 1.0</strong>
+      </div>
+    </aside>
+
+    <main class="content" id="home">
+
+      <header class="topbar">
+        <div>
+          <h1>Добро пожаловать!</h1>
+          <p>Вот что происходит с твоими финансами</p>
+        </div>
+        <div class="profile">Т</div>
+      </header>
+
+      <section class="balance-card">
+        <div>
+          <p>Общий баланс</p>
+          <h2 id="balance">0 ₽</h2>
+          <span>Твои финансы под контролем</span>
+        </div>
+        <div class="balance-icon">₽</div>
+      </section>
+
+      <section class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon green">↗</div>
+          <p>Доходы</p>
+          <h2 id="income">0 ₽</h2>
+          <span>Все поступления</span>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-icon red">↘</div>
+          <p>Расходы</p>
+          <h2 id="expenses">0 ₽</h2>
+          <span>Все траты</span>
+        </div>
+      </section>
+
+      <div class="dashboard-grid">
+
+        <section class="panel" id="transactions">
+          <div class="panel-header">
+            <h2>Последние операции</h2>
+            <span>История</span>
+          </div>
+    <div class="operation-tabs">
+      <button class="tab active" onclick="showOperations('all', this)">
+        Все
+      </button>
+
+      <button class="tab" onclick="showOperations('income', this)">
+        Доходы
+      </button>
+
+      <button class="tab" onclick="showOperations('expense', this)">
+        Расходы
+      </button>
+    </div>
+
+    <div id="operations">
+      <p class="empty">Операций пока нет</p>
+    </div>
+            </section>
+
+           <section class="panel" id="add-operation-panel">
+    <h2>Добавить операцию</h2>
+
+    <input id="name" placeholder="Название операции">
+
+    <input id="amount" type="number" placeholder="Сумма">
+
+    <select id="type">
+        <option value="expense">📉 Расход</option>
+        <option value="income">📈 Доход</option>
+    </select>
+
+    <input
+        id="category"
+        type="text"
+        placeholder="Откуда доход / На что расход"
+    >
+
+    <button onclick="addOperation()">Добавить операцию</button>
+</section>
+
+<section class="panel" id="monthly-stats">
+    <h2>Статистика за месяц</h2>
+
+    <div class="monthly-stats-grid">
+        <div class="monthly-stat-card">
+            <span>Доходы за месяц</span>
+            <strong id="monthly-income">0 ₽</strong>
+        </div>
+
+        <div class="monthly-stat-card">
+            <span>Расходы за месяц</span>
+            <strong id="monthly-expenses">0 ₽</strong>
+        </div>
+
+        <div class="monthly-stat-card">
+            <span>Сравнение с прошлым месяцем</span>
+            <strong id="monthly-comparison">—</strong>
+            <small id="monthly-comparison-details"></small>
+        </div>
+    </div>
+</section>
+
+<section class="panel" id="goals">
+    <h2>Моя финансовая цель</h2>
+
+    <input id="goal" placeholder="Например, новый телефон">
+    <input id="goalAmount" type="number" placeholder="Сумма цели">
+
+    <button onclick="saveGoal()">Сохранить цель</button>
+
+    <button class="reset-goal-btn" onclick="resetGoal()">
+        Сбросить цель
+    </button>
+
+    <div class="progress">
+        <div id="goalBar"></div>
+    </div>
+
+    <p id="goalInfo" class="empty">Цель пока не установлена</p>
+</section>
+</section>
+      </div>
+
+      <footer>
+        LifePlan © 2026 · Управляй деньгами разумно
+      </footer>
+
+    </main>
+  </div>
+  <!-- Модальное окно операций -->
+<div class="feature-overlay" id="operations-modal">
+    <div class="feature-modal">
+        <button class="feature-close" onclick="closeFeatureModal()">×</button>
+        <h2>Операции</h2>
+        <div class="feature-modal-content" id="operations-modal-content"></div>
+    </div>
+</div>
+
+<!-- Модальное окно накоплений -->
+<div class="feature-overlay" id="goals-modal">
+    <div class="feature-modal">
+        <button class="feature-close" onclick="closeFeatureModal()">×</button>
+        <h2>Накопления</h2>
+        <div class="feature-modal-content" id="goals-modal-content"></div>
+    </div>
+</div>
+
+<!-- Модальное окно статистики -->
+<div class="feature-overlay" id="statistics-modal">
+    <div class="feature-modal">
+        <button class="feature-close" onclick="closeFeatureModal()">×</button>
+        <h2>Статистика</h2>
+        <div class="feature-modal-content" id="statistics-modal-content"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+        <h2>Редактировать операцию</h2>
+
+        <input id="edit-name" type="text" placeholder="Название операции">
+
+        <input id="edit-amount" type="number" placeholder="Сумма">
+
+        <select id="edit-type">
+            <option value="expense">📉 Расход</option>
+            <option value="income">📈 Доход</option>
+        </select>
+
+        <input
+            id="edit-category"
+            type="text"
+            placeholder="Откуда доход / На что расход"
+        >
+
+        <div class="modal-buttons">
+            <button onclick="saveEdit()">Сохранить</button>
+            <button onclick="closeEditModal()">Отмена</button>
+        </div>
+    </div>
+</div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
+
