@@ -257,11 +257,6 @@ window.showOperations = function(type, button) {
 // Запуск приложения
 render();
 
-
-
-
-
-
 // Открытие окна редактирования
 window.editOperation = function(id) {
     const operation = data.operations.find(item => item.id === id);
@@ -506,6 +501,134 @@ document.addEventListener("keydown", event => {
         closeFeatureModal();
     }
 });
+
+// ======================================
+// АВТОРИЗАЦИЯ SUPABASE
+// ======================================
+
+let authMode = "login";
+
+const authScreen = document.getElementById("auth-screen");
+const loginTab = document.getElementById("login-tab");
+const registerTab = document.getElementById("register-tab");
+const authTitle = document.getElementById("auth-title");
+const authDescription = document.getElementById("auth-description");
+const authEmail = document.getElementById("auth-email");
+const authPassword = document.getElementById("auth-password");
+const authSubmit = document.getElementById("auth-submit");
+const authMessage = document.getElementById("auth-message");
+
+// Переключение между входом и регистрацией
+function setAuthMode(mode) {
+    authMode = mode;
+
+    loginTab.classList.toggle("active", mode === "login");
+    registerTab.classList.toggle("active", mode === "register");
+
+    if (mode === "login") {
+        authTitle.textContent = "С возвращением!";
+        authDescription.textContent = "Войди в свой аккаунт";
+        authSubmit.textContent = "Войти";
+        authPassword.autocomplete = "current-password";
+    } else {
+        authTitle.textContent = "Создай аккаунт";
+        authDescription.textContent = "Зарегистрируйся в LifePlan";
+        authSubmit.textContent = "Зарегистрироваться";
+        authPassword.autocomplete = "new-password";
+    }
+
+    authMessage.textContent = "";
+    authPassword.value = "";
+}
+
+loginTab.addEventListener("click", () => {
+    setAuthMode("login");
+});
+
+registerTab.addEventListener("click", () => {
+    setAuthMode("register");
+});
+
+// Отправка формы
+authSubmit.addEventListener("click", async () => {
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+
+    authMessage.textContent = "";
+
+    if (!email || !password) {
+        authMessage.textContent = "Заполни почту и пароль!";
+        return;
+    }
+
+    if (password.length < 6) {
+        authMessage.textContent = "Пароль должен содержать минимум 6 символов";
+        return;
+    }
+
+    authSubmit.disabled = true;
+    authSubmit.textContent = "Подождите...";
+
+try {
+    let result;
+
+    if (authMode === "register") {
+        result = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+                emailRedirectTo: "https://lifeplan-studio.github.io/lifeplan/"
+            }
+        });
+    } else {
+        result = await supabaseClient.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+    }
+
+    if (result.error) {
+        throw result.error;
+    }
+
+    if (authMode === "register" && !result.data.session) {
+        authMessage.style.color = "#28b879";
+        authMessage.textContent =
+            "Проверь почту и подтверди регистрацию по ссылке.";
+
+        return;
+    }
+
+    authScreen.classList.add("hidden");
+
+} catch (error) {
+    authMessage.style.color = "#ed6969";
+    authMessage.textContent =
+        error.message || "Произошла ошибка. Попробуй ещё раз.";
+} finally {
+    authSubmit.disabled = false;
+    authSubmit.textContent =
+        authMode === "login" ? "Войти" : "Зарегистрироваться";
+}
+});
+// Проверка существующей сессии
+async function checkAuthSession() {
+    try {
+        const { data: sessionData, error } =
+            await supabaseClient.auth.getSession();
+
+        if (error) throw error;
+
+        if (sessionData.session) {
+            authScreen.classList.add("hidden");
+        }
+    } catch (error) {
+        authMessage.textContent =
+            "Не удалось проверить авторизацию. Обнови страницу.";
+    }
+}
+
+checkAuthSession();
 
 
 
