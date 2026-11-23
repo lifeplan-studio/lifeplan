@@ -25,6 +25,13 @@ if (!data.goal || typeof data.goal !== "object") {
 
 let activeUserId = null;
 let cloudSyncQueue = Promise.resolve();
+let activeUser = null;
+let hasProEntitlement = false;
+let proBudgets = {};
+
+const defaultProBudgetCategories = [
+  "Еда", "Транспорт", "Покупки", "Дом", "Подписки", "Здоровье", "Другое"
+];
 
 function saveData() {
   if (!activeUserId) return;
@@ -72,13 +79,21 @@ function saveData() {
 async function loadUserData(user) {
   if (!user) {
     activeUserId = null;
+    activeUser = null;
+    proBudgets = {};
     data = { operations: [], goal: { name: "", amount: 0 } };
     render();
     setProEntitlement(false);
     return;
   }
 
+  const isSwitchingUser = activeUserId !== user.id;
   activeUserId = user.id;
+  activeUser = user;
+  proBudgets = user.user_metadata?.lifeplan_pro_budgets && typeof user.user_metadata.lifeplan_pro_budgets === "object"
+    ? { ...user.user_metadata.lifeplan_pro_budgets }
+    : {};
+  if (isSwitchingUser) setProEntitlement(false);
   const userId = user.id;
   try {
     const [{ data: operations, error: operationsError }, { data: goal, error: goalError }] = await Promise.all([
@@ -336,6 +351,7 @@ function render() {
     renderOperations();
     renderGoal(balance);
     renderMonthlyStats();
+    renderProDashboard();
 }
 
 // Переключение операций
@@ -550,6 +566,7 @@ function openFeatureModal(modalId) {
 
     modal.classList.add("active");
     document.body.style.overflow = "hidden";
+    if (modalId === "pro-modal") renderProDashboard();
 }
 
 function closeFeatureModal() {
@@ -621,14 +638,233 @@ const settingsMessage = document.getElementById("settings-message");
 const newPasswordInput = document.getElementById("new-password");
 
 function setProEntitlement(isActive) {
+    hasProEntitlement = isActive;
     const buyButton = document.getElementById("buy-pro-button");
     const message = document.getElementById("pro-purchase-message");
+    const preview = document.getElementById("pro-preview");
+    const workspace = document.getElementById("pro-workspace");
+    const hero = document.querySelector(".pro-hero");
+    const heading = document.getElementById("pro-heading");
+    const priceRow = document.querySelector(".pro-price-row");
+    const testNote = document.querySelector(".pro-test-note");
+
+    preview.hidden = isActive;
+    workspace.hidden = !isActive;
+    hero.classList.toggle("is-unlocked", isActive);
+    heading.textContent = isActive ? "LifePlan Pro уже с тобой" : "Твой финансовый план — на уровень выше";
+    priceRow.hidden = isActive;
+    testNote.hidden = isActive;
     if (isActive) {
         buyButton.hidden = true;
         message.textContent = "LifePlan Pro активирован для этого аккаунта навсегда.";
     } else {
         buyButton.hidden = false;
     }
+    renderProDashboard();
+}
+
+function getCurrentMonthOperations() {
+    const now = new Date();
+    return data.operations.filter(item => {
+        const date = parseOperationDate(item.date);
+        return date && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    });
+}
+
+function renderProDashboard() {
+    const workspace = document.getElementById("pro-workspace");
+    if (!workspace) return;
+
+    const monthOperations = getCurrentMonthOperations();
+    const expenses = monthOperations.filter(item => item.type === "expense");
+    const incomeTotal = monthOperations
+        .filter(item => item.type === "income")
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+    const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
+    const categoryTotals = expenses.reduce((totals, item) => {
+        const category = String(item.category || "Без категории").trim() || "Без категории";
+        totals[category] = (totals[category] || 0) + Number(item.amount);
+        return totals;
+    }, Object.create(null));
+    const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
+    const now = new Date();
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousExpenseTotal = data.operations
+        .filter(item => {
+            const date = parseOperationDate(item.date);
+            return item.type === "expense" && date && date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
+        })
+        .reduce((sum, item) => sum + Number(item.amount), 0);
+    const spendingTrend = previousExpenseTotal > 0
+        ? ` По сравнению с прошлым месяцем расходы ${expenseTotal > previousExpenseTotal ? "выросли" : "снизились"} на ${Math.abs(Math.round((expenseTotal - previousExpenseTotal) / previousExpenseTotal * 100))}%.`
+        : "";
+
+    document.getElementById("pro-month-balance").textContent = money(incomeTotal - expenseTotal);
+    document.getElementById("pro-daily-spend").textContent = money(expenseTotal / Math.max(1, new Date().getDate()));
+    document.getElementById("pro-top-category").textContent = topCategory ? topCategory[0] : "—";
+    document.getElementById("pro-top-category-share").textContent = topCategory && expenseTotal
+        ? `${Math.round(topCategory[1] / expenseTotal * 100)}% всех расходов`
+        : "добавь расходы для анализа";
+
+    const insight = document.getElementById("pro-insight-text");
+    const activeBudget = Object.entries(proBudgets).find(([category, limit]) =>
+        Number(limit) > 0 && (categoryTotals[category] || 0) >= Number(limit)
+    );
+    const almostBudget = Object.entries(proBudgets).find(([category, limit]) =>
+        Number(limit) > 0 && (categoryTotals[category] || 0) >= Number(limit) * 0.8
+    );
+
+    if (!monthOperations.length) {
+        insight.textContent = "В этом месяце пока нет операций. Добавь доходы и расходы — здесь появятся персональные подсказки.";
+    } else if (activeBudget) {
+        insight.textContent = `Лимит «${activeBudget[0]}» достигнут. Уже потрачено ${money(categoryTotals[activeBudget[0]] || 0)} из ${money(Number(activeBudget[1]))}.${spendingTrend}`;
+    } else if (almostBudget) {
+        insight.textContent = `В категории «${almostBudget[0]}» осталось меньше 20% лимита. Хороший момент проверить планируемые покупки.${spendingTrend}`;
+    } else if (topCategory) {
+        insight.textContent = `Больше всего в этом месяце уходит на «${topCategory[0]}» — ${money(topCategory[1])}. Поставь лимит, чтобы держать эту статью под контролем.${spendingTrend}`;
+    } else {
+        insight.textContent = "Здорово: расходы пока не записаны. Добавляй операции — LifePlan соберёт ясную картину месяца.";
+    }
+
+    const budgetCategories = [...new Set([
+        ...defaultProBudgetCategories,
+        ...Object.keys(categoryTotals)
+    ])];
+    document.getElementById("pro-budget-list").innerHTML = budgetCategories.map(category => {
+        const spent = categoryTotals[category] || 0;
+        const limit = Number(proBudgets[category]) || 0;
+        const progress = limit ? Math.min(100, Math.round(spent / limit * 100)) : 0;
+        const stateClass = limit && spent >= limit ? "over" : limit && spent >= limit * 0.8 ? "near" : "";
+        let status = "Задай лимит";
+        if (limit && spent >= limit) status = `Превышен на ${money(spent - limit)}`;
+        else if (limit) status = `Осталось ${money(limit - spent)}`;
+
+        return `
+          <div class="budget-row ${stateClass}">
+            <div class="budget-row-top"><label for="budget-${escapeHTML(category)}">${escapeHTML(category)}</label><span>${money(spent)}</span></div>
+            <div class="budget-meter"><span style="width:${progress}%"></span></div>
+            <div class="budget-row-bottom"><small>${status}</small><label class="budget-input-wrap"><span>Лимит</span><input id="budget-${escapeHTML(category)}" data-budget-input="${escapeHTML(category)}" type="number" min="0" step="100" value="${limit || ""}" placeholder="₽"></label></div>
+          </div>
+        `;
+    }).join("");
+
+    renderProGoalForecast();
+}
+
+function renderProGoalForecast() {
+    const container = document.getElementById("pro-goal-forecast");
+    const goal = data.goal;
+    if (!goal?.name || !Number(goal.amount)) {
+        container.innerHTML = `
+          <div class="forecast-empty"><span class="forecast-icon">◎</span><h5>Сначала выбери цель</h5><p>Добавь цель в разделе «Накопления», и здесь появится прогноз срока.</p></div>
+        `;
+        return;
+    }
+
+    const currentBalance = data.operations.reduce((balance, item) =>
+        balance + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
+    );
+    const saved = Math.max(0, currentBalance);
+    const remaining = Math.max(0, Number(goal.amount) - saved);
+    const progress = Math.min(100, Math.round(saved / Number(goal.amount) * 100));
+    const now = new Date();
+    const monthlySavings = [];
+
+    for (let offset = 0; offset < 3; offset += 1) {
+        const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        const monthItems = data.operations.filter(item => {
+            const date = parseOperationDate(item.date);
+            return date && date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth();
+        });
+        if (!monthItems.length) continue;
+        monthlySavings.push(monthItems.reduce((total, item) =>
+            total + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
+        ));
+    }
+
+    const averageMonthlySavings = monthlySavings.length
+        ? monthlySavings.reduce((sum, amount) => sum + amount, 0) / monthlySavings.length
+        : 0;
+    let forecast = "Запиши операции за этот месяц, чтобы рассчитать темп.";
+    if (remaining === 0) {
+        forecast = "Цель уже достигнута — поздравляем!";
+    } else if (averageMonthlySavings > 0) {
+        const finishDate = new Date(now.getFullYear(), now.getMonth() + Math.ceil(remaining / averageMonthlySavings), 1);
+        forecast = `При текущем темпе — примерно ${finishDate.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}.`;
+    } else if (monthlySavings.length) {
+        forecast = "Пока темп накоплений не положительный. Попробуй выбрать комфортный ежемесячный взнос.";
+    }
+
+    container.innerHTML = `
+      <div class="goal-forecast-title"><span class="forecast-icon">◎</span><div><small>ТЫ НАКАПЛИВАЕШЬ НА</small><h5>${escapeHTML(goal.name)}</h5></div></div>
+      <div class="goal-forecast-amounts"><strong>${money(saved)}</strong><span>из ${money(Number(goal.amount))}</span></div>
+      <div class="forecast-meter"><span style="width:${progress}%"></span></div>
+      <div class="forecast-percent">${progress}% пути</div>
+      <div class="forecast-result"><span>⌁</span><p>${forecast}</p></div>
+      <small class="forecast-caption">Оценка по операциям за последние месяцы. Это ориентир, а не обещание доходности.</small>
+    `;
+}
+
+async function saveProBudgets() {
+    const message = document.getElementById("pro-budget-message");
+    const button = document.getElementById("pro-save-budgets");
+    if (!activeUser || !hasProEntitlement) return;
+
+    const nextBudgets = {};
+    document.querySelectorAll("[data-budget-input]").forEach(input => {
+        const amount = Number(input.value);
+        if (input.value && Number.isFinite(amount) && amount > 0) {
+            nextBudgets[input.dataset.budgetInput] = amount;
+        }
+    });
+
+    button.disabled = true;
+    message.textContent = "Сохраняем…";
+    try {
+        const metadata = {
+            ...(activeUser.user_metadata || {}),
+            lifeplan_pro_budgets: nextBudgets
+        };
+        const { data: result, error } = await supabaseClient.auth.updateUser({ data: metadata });
+        if (error) throw error;
+        activeUser = result.user;
+        proBudgets = nextBudgets;
+        message.textContent = "Лимиты сохранены в аккаунте.";
+        renderProDashboard();
+    } catch (error) {
+        message.textContent = error.message || "Не удалось сохранить лимиты.";
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function exportProReport() {
+    if (!hasProEntitlement) return;
+    if (!data.operations.length) {
+        document.getElementById("pro-insight-text").textContent = "Пока нечего выгружать. Добавь хотя бы одну операцию.";
+        return;
+    }
+
+    const escapeCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = [
+        ["Дата", "Тип", "Название", "Категория", "Сумма, ₽"],
+        ...data.operations.map(item => [
+            item.date || "",
+            item.type === "income" ? "Доход" : "Расход",
+            item.name || "",
+            item.category || "",
+            Number(item.amount) || 0
+        ])
+    ];
+    const csv = "\uFEFF" + rows.map(row => row.map(escapeCell).join(";")).join("\r\n");
+    const blobUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const download = document.createElement("a");
+    download.href = blobUrl;
+    download.download = `lifeplan-otchet-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(download);
+    download.click();
+    download.remove();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
 
 async function refreshProEntitlement(userId, retryCount = 0) {
@@ -678,6 +914,9 @@ document.getElementById("buy-pro-button").addEventListener("click", async () => 
         button.disabled = false;
     }
 });
+
+document.getElementById("pro-save-budgets").addEventListener("click", saveProBudgets);
+document.getElementById("pro-export-button").addEventListener("click", exportProReport);
 
 function setAccountUser(user) {
     const email = user?.email || "";
