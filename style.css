@@ -965,7 +965,9 @@ footer {
     margin-top: 25px;
     font-size: 13px;
 }
-
+.auth-overlay.hidden {
+    display: none;
+}
 
 
 
