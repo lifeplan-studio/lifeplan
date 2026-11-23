@@ -860,6 +860,112 @@ footer {
 }
 
 
+/* Авторизация LifePlan */
+
+.auth-overlay {
+    position: fixed;
+    inset: 0;
+    background: #f5f6fa;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    background: #ffffff;
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+}
+
+.auth-logo {
+    text-align: center;
+    font-size: 32px;
+    color: #202235;
+}
+
+.auth-logo span {
+    color: #7965ed;
+}
+
+.auth-subtitle,
+.auth-form > p,
+.auth-footer {
+    text-align: center;
+    color: #77798a;
+}
+
+.auth-tabs {
+    display: flex;
+    gap: 10px;
+    margin: 28px 0;
+}
+
+.auth-tab {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #d8d5e8;
+    border-radius: 10px;
+    background: #e8e6f2;
+    color: #444258;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.auth-tab:hover {
+    background: #dedbed;
+}
+
+.auth-tab.active {
+    background: #7965ed;
+    color: #ffffff;
+    border-color: #7965ed;
+}
+
+.auth-tab.active {
+    background: #7965ed;
+    color: white;
+}
+
+.auth-form h2 {
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.auth-form input {
+    width: 100%;
+    padding: 14px;
+    margin-top: 14px;
+    border: 1px solid #e1e1e8;
+    border-radius: 10px;
+    outline: none;
+}
+
+#auth-submit {
+    width: 100%;
+    margin-top: 18px;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: #7965ed;
+    color: white;
+    cursor: pointer;
+}
+
+.auth-message {
+    margin-top: 12px;
+}
+
+.auth-footer {
+    margin-top: 25px;
+    font-size: 13px;
+}
+
 
 
 
