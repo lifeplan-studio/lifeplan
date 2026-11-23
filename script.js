@@ -1,4 +1,11 @@
 const STORAGE_KEY = "lifeplan_data";
+const LEGACY_DATA = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+})();
 
 const categories = {
   food: { name: "Еда", color: "#7965ed" },
@@ -9,21 +16,108 @@ const categories = {
   other: { name: "Другое", color: "#9293a5" }
 };
 
-let data;
-
-try {
-  data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-} catch {
-  data = {};
-}
+let data = { ...LEGACY_DATA };
 
 if (!Array.isArray(data.operations)) data.operations = [];
 if (!data.goal || typeof data.goal !== "object") {
   data.goal = { name: "", amount: 0 };
 }
 
+let activeUserId = null;
+let cloudSyncQueue = Promise.resolve();
+
 function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  if (!activeUserId) return;
+  const userId = activeUserId;
+  const snapshot = JSON.parse(JSON.stringify(data));
+  cloudSyncQueue = cloudSyncQueue.then(async () => {
+    if (activeUserId !== userId) return;
+    const operations = snapshot.operations.map(item => ({
+      id: item.id,
+      user_id: userId,
+      name: item.name,
+      amount: item.amount,
+      type: item.type,
+      category: item.category,
+      date: item.date
+    }));
+
+    if (operations.length) {
+      const { error } = await supabaseClient.from("operations").upsert(operations);
+      if (error) throw error;
+    }
+
+    let deleteQuery = supabaseClient.from("operations").delete().eq("user_id", userId);
+    if (operations.length) {
+      deleteQuery = deleteQuery.not("id", "in", `(${operations.map(item => item.id).join(",")})`);
+    }
+    const { error: deleteError } = await deleteQuery;
+    if (deleteError) throw deleteError;
+
+    const { error: goalError } = await supabaseClient.from("goals").upsert({
+      user_id: userId,
+      name: snapshot.goal.name,
+      amount: snapshot.goal.amount
+    });
+    if (goalError) throw goalError;
+    return true;
+  }).catch(error => {
+    console.error("Не удалось сохранить данные в Supabase:", error);
+    alert(`Не удалось сохранить данные в облако: ${error.message || "неизвестная ошибка"}`);
+    return false;
+  });
+  return cloudSyncQueue;
+}
+
+async function loadUserData(user) {
+  if (!user) {
+    activeUserId = null;
+    data = { operations: [], goal: { name: "", amount: 0 } };
+    render();
+    setProEntitlement(false);
+    return;
+  }
+
+  activeUserId = user.id;
+  const userId = user.id;
+  try {
+    const [{ data: operations, error: operationsError }, { data: goal, error: goalError }] = await Promise.all([
+      supabaseClient.from("operations").select("id,name,amount,type,category,date").eq("user_id", userId).order("id", { ascending: false }),
+      supabaseClient.from("goals").select("name,amount").eq("user_id", userId).maybeSingle()
+    ]);
+    if (operationsError) throw operationsError;
+    if (goalError) throw goalError;
+    if (activeUserId !== userId) return;
+
+    const migrationKey = `lifeplan_migrated_${userId}`;
+    const localOperations = Array.isArray(LEGACY_DATA.operations) ? LEGACY_DATA.operations : [];
+    const localGoal = LEGACY_DATA.goal && typeof LEGACY_DATA.goal === "object"
+      ? LEGACY_DATA.goal
+      : { name: "", amount: 0 };
+    const hasLegacyData = localOperations.length > 0 || Boolean(localGoal.name && Number(localGoal.amount) > 0);
+    if (!operations.length && !goal && !localStorage.getItem(migrationKey) && hasLegacyData) {
+      data = {
+        operations: localOperations.map(item => ({
+          ...item,
+          id: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(item.id))
+            ? item.id
+            : crypto.randomUUID()
+        })),
+        goal: localGoal
+      };
+      if (await saveData()) localStorage.setItem(migrationKey, "true");
+    } else {
+      data = {
+        operations: operations || [],
+        goal: goal ? { name: goal.name, amount: Number(goal.amount) } : { name: "", amount: 0 }
+      };
+    }
+    render();
+    await refreshProEntitlement(userId);
+  } catch (error) {
+    console.error("Не удалось загрузить данные из Supabase:", error);
+    alert(`Не удалось загрузить финансовые данные: ${error.message || "неизвестная ошибка"}`);
+  }
 }
 
 function money(value) {
@@ -43,7 +137,7 @@ function addOperation() {
   }
 
   data.operations.unshift({
-    id: Date.now(),
+    id: crypto.randomUUID(),
     name,
     amount,
     type,
@@ -141,11 +235,11 @@ function renderOperations(type = "all") {
         ${isIncome ? "+" : "-"}${money(item.amount)}
     </strong>
 
-    <button class="edit-btn" onclick="editOperation(${item.id})">
+    <button class="edit-btn" onclick="editOperation('${item.id}')">
         ✏️
     </button>
 
-    <button class="delete-btn" onclick="deleteOperation(${item.id})">
+    <button class="delete-btn" onclick="deleteOperation('${item.id}')">
         ✕
     </button>
         </div>
@@ -428,7 +522,8 @@ const featureSections = {
     ],
     "statistics-modal": [
         document.getElementById("monthly-stats")
-    ]
+    ],
+    "pro-modal": []
 };
 
 const featurePlaceholders = new Map();
@@ -517,6 +612,153 @@ const authEmail = document.getElementById("auth-email");
 const authPassword = document.getElementById("auth-password");
 const authSubmit = document.getElementById("auth-submit");
 const authMessage = document.getElementById("auth-message");
+const profileButton = document.getElementById("profile-button");
+const profileMenu = document.getElementById("account-menu");
+const accountEmail = document.getElementById("account-email");
+const accountSettingsModal = document.getElementById("account-settings-modal");
+const settingsEmail = document.getElementById("settings-email");
+const settingsMessage = document.getElementById("settings-message");
+const newPasswordInput = document.getElementById("new-password");
+
+function setProEntitlement(isActive) {
+    const buyButton = document.getElementById("buy-pro-button");
+    const message = document.getElementById("pro-purchase-message");
+    if (isActive) {
+        buyButton.hidden = true;
+        message.textContent = "LifePlan Pro активирован для этого аккаунта навсегда.";
+    } else {
+        buyButton.hidden = false;
+    }
+}
+
+async function refreshProEntitlement(userId, retryCount = 0) {
+    const message = document.getElementById("pro-purchase-message");
+    const returnedFromPayment = retryCount === 0 && new URLSearchParams(window.location.search).has("pro_payment");
+    const { data: entitlement, error } = await supabaseClient
+        .from("pro_entitlements")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+    if (error) {
+        console.error("Не удалось проверить LifePlan Pro:", error);
+        return;
+    }
+    setProEntitlement(Boolean(entitlement));
+
+    if (returnedFromPayment) {
+        if (entitlement) {
+            message.textContent = "Оплата подтверждена. LifePlan Pro активирован навсегда.";
+        } else {
+            message.textContent = "Платёж проверяется. Если он прошёл, Pro активируется автоматически в течение минуты.";
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete("pro_payment");
+        window.history.replaceState({}, "", url);
+    }
+
+    if (!entitlement && (returnedFromPayment || retryCount > 0) && retryCount < 8) {
+        window.setTimeout(() => refreshProEntitlement(userId, retryCount + 1), 4000);
+    }
+}
+
+document.getElementById("buy-pro-button").addEventListener("click", async () => {
+    const button = document.getElementById("buy-pro-button");
+    const message = document.getElementById("pro-purchase-message");
+    button.disabled = true;
+    message.textContent = "Готовим переход к оплате…";
+    try {
+        const { data: result, error } = await supabaseClient.functions.invoke("create-yookassa-payment");
+        if (error) throw error;
+        if (!result?.confirmationUrl) throw new Error(result?.error || "Не получена ссылка на оплату.");
+        window.location.assign(result.confirmationUrl);
+    } catch (error) {
+        message.textContent = error.message || "Не удалось начать оплату.";
+    } finally {
+        button.disabled = false;
+    }
+});
+
+function setAccountUser(user) {
+    const email = user?.email || "";
+    document.getElementById("profile-initial").textContent = email
+        ? Array.from(email.trim())[0].toLocaleUpperCase("ru-RU")
+        : "?";
+    accountEmail.textContent = email || "Почта не указана";
+    settingsEmail.textContent = email || "Почта не указана";
+    profileButton.hidden = !user;
+}
+
+function closeAccountMenu() {
+    profileMenu.hidden = true;
+    profileButton.setAttribute("aria-expanded", "false");
+}
+
+profileButton.addEventListener("click", () => {
+    const isOpen = !profileMenu.hidden;
+    profileMenu.hidden = isOpen;
+    profileButton.setAttribute("aria-expanded", String(!isOpen));
+});
+
+document.addEventListener("click", event => {
+    if (!event.target.closest(".profile-menu-wrap")) closeAccountMenu();
+});
+
+document.getElementById("account-settings-button").addEventListener("click", () => {
+    closeAccountMenu();
+    settingsMessage.textContent = "";
+    settingsMessage.className = "settings-message";
+    newPasswordInput.value = "";
+    accountSettingsModal.style.display = "flex";
+    newPasswordInput.focus();
+});
+
+function closeAccountSettings() {
+    accountSettingsModal.style.display = "none";
+}
+
+document.getElementById("close-account-settings").addEventListener("click", closeAccountSettings);
+accountSettingsModal.addEventListener("click", event => {
+    if (event.target === accountSettingsModal) closeAccountSettings();
+});
+
+document.getElementById("save-account-settings").addEventListener("click", async () => {
+    const password = newPasswordInput.value;
+    if (password.length < 6) {
+        settingsMessage.textContent = "Пароль должен содержать минимум 6 символов.";
+        settingsMessage.className = "settings-message error";
+        return;
+    }
+
+    const saveButton = document.getElementById("save-account-settings");
+    saveButton.disabled = true;
+    settingsMessage.textContent = "Сохраняем…";
+    settingsMessage.className = "settings-message";
+    try {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+        settingsMessage.textContent = "Пароль обновлён.";
+        settingsMessage.className = "settings-message success";
+        newPasswordInput.value = "";
+    } catch (error) {
+        settingsMessage.textContent = error.message || "Не удалось обновить пароль.";
+        settingsMessage.className = "settings-message error";
+    } finally {
+        saveButton.disabled = false;
+    }
+});
+
+document.getElementById("logout-button").addEventListener("click", async () => {
+    closeAccountMenu();
+    const { error } = await supabaseClient.auth.signOut();
+    if (error) {
+        alert(error.message || "Не удалось выйти из аккаунта.");
+        return;
+    }
+    setAccountUser(null);
+    authMessage.textContent = "";
+    authScreen.classList.remove("hidden");
+});
 
 // Переключение между входом и регистрацией
 function setAuthMode(mode) {
@@ -600,6 +842,7 @@ try {
     }
 
     authScreen.classList.add("hidden");
+    if (result.data.user) setAccountUser(result.data.user);
 
 } catch (error) {
     authMessage.style.color = "#ed6969";
@@ -620,7 +863,12 @@ async function checkAuthSession() {
         if (error) throw error;
 
         if (sessionData.session) {
+            setAccountUser(sessionData.session.user);
             authScreen.classList.add("hidden");
+            await loadUserData(sessionData.session.user);
+        } else {
+            setAccountUser(null);
+            await loadUserData(null);
         }
     } catch (error) {
         authMessage.textContent =
@@ -629,6 +877,12 @@ async function checkAuthSession() {
 }
 
 checkAuthSession();
+
+supabaseClient.auth.onAuthStateChange((event, session) => {
+    setAccountUser(session?.user || null);
+    authScreen.classList.toggle("hidden", Boolean(session));
+    setTimeout(() => loadUserData(session?.user || null), 0);
+});
 
 
 

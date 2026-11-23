@@ -109,6 +109,97 @@ body {
   justify-content: center;
   align-items: center;
   font-weight: 700;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+  box-shadow: 0 4px 12px rgba(121, 101, 237, 0.2);
+}
+
+.profile-menu-wrap {
+  position: relative;
+  z-index: 20;
+}
+
+.profile-menu-wrap .profile:hover {
+  background: #6550d5;
+  transform: translateY(-1px);
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 250px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #eeeef5;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(32, 34, 53, 0.14);
+}
+
+.account-menu[hidden],
+.profile[hidden] {
+  display: none;
+}
+
+.account-menu-email {
+  padding: 10px 11px 12px;
+  color: #77788c;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.account-menu-item {
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px;
+  text-align: left;
+  color: #444258;
+  background: transparent;
+  border-radius: 9px;
+}
+
+.account-menu-item:hover {
+  background: #f5f3ff;
+  color: #7965ed;
+}
+
+.account-menu-item.account-menu-logout {
+  color: #e05252;
+}
+
+.account-menu-item.account-menu-logout:hover {
+  background: #fff0f0;
+}
+
+.settings-email-label,
+.settings-password-label {
+  display: block;
+  margin: 0 0 8px;
+  color: #85869a;
+  font-size: 13px;
+}
+
+.settings-email {
+  margin-bottom: 20px;
+  color: #202235;
+  overflow-wrap: anywhere;
+}
+
+.settings-message {
+  min-height: 18px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.settings-message.error { color: #ed6969; }
+.settings-message.success { color: #28b879; }
+
+.modal-buttons button:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 /* Баланс */
@@ -815,6 +906,126 @@ footer {
 
 .feature-modal-content .panel {
     margin-bottom: 20px;
+}
+
+.pro-modal {
+    max-width: 900px;
+}
+
+.pro-content {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.pro-intro {
+    padding: 24px;
+    border-radius: 16px;
+    background: linear-gradient(125deg, #f3f0ff, #faf8ff);
+    border: 1px solid #e8e2ff;
+}
+
+.pro-badge {
+    display: inline-block;
+    padding: 6px 9px;
+    border-radius: 20px;
+    background: #e8e2ff;
+    color: #6550d5;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+}
+
+.pro-intro h3 {
+    margin: 14px 0 8px;
+    color: #292940;
+    font-size: 22px;
+}
+
+.pro-intro p,
+.pro-feature-card p,
+.pro-note {
+    color: #77788c;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.pro-plan-status {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    background: #fff;
+    color: #444258;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pro-buy-button {
+    display: block;
+    width: auto;
+    margin-top: 16px;
+    padding: 12px 18px;
+}
+
+.pro-purchase-message {
+    margin-top: 10px;
+    color: #77788c;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.pro-buy-button:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.pro-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.pro-feature-card {
+    padding: 20px;
+    border: 1px solid #eeeef5;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.pro-feature-icon {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+    border-radius: 11px;
+    background: #f0edff;
+    color: #7965ed;
+    font-size: 19px;
+}
+
+.pro-feature-card h3 {
+    margin-bottom: 7px;
+    color: #292940;
+    font-size: 15px;
+}
+
+.pro-note {
+    margin: 0;
+    text-align: center;
+    font-size: 12px;
+}
+
+@media (max-width: 600px) {
+    .pro-feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pro-intro h3 {
+        font-size: 19px;
+    }
 }
 
 @keyframes modalAppear {
