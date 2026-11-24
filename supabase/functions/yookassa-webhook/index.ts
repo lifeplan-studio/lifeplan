@@ -7,8 +7,13 @@ Deno.serve(async (request: Request) => {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const shopId = Deno.env.get("YOOKASSA_SHOP_ID");
   const secretKey = Deno.env.get("YOOKASSA_SECRET_KEY");
-  if (!supabaseUrl || !serviceRoleKey || !shopId || !secretKey) {
+  const mode = Deno.env.get("YOOKASSA_MODE") || "test";
+  const liveSalesEnabled = Deno.env.get("LIFEPLAN_PRO_LIVE_ENABLED") === "true";
+  if (!supabaseUrl || !serviceRoleKey || !shopId || !secretKey || !["test", "live"].includes(mode)) {
     return new Response("Payment service is not configured", { status: 503 });
+  }
+  if (mode === "live" && !liveSalesEnabled) {
+    return new Response("Live payments are not enabled", { status: 503 });
   }
 
   let notification;
@@ -32,6 +37,7 @@ Deno.serve(async (request: Request) => {
   if (
     payment.status !== "succeeded" ||
     payment.paid !== true ||
+    payment.test !== (mode === "test") ||
     payment.amount?.currency !== "RUB" ||
     payment.amount?.value !== "199.00" ||
     payment.metadata?.product !== "lifeplan_pro_lifetime" ||
@@ -43,12 +49,23 @@ Deno.serve(async (request: Request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey);
   const { data: storedPayment, error: lookupError } = await admin
     .from("pro_payments")
-    .select("payment_id,user_id,status")
+    .select("payment_id,user_id,status,is_test")
     .eq("payment_id", payment.id)
     .maybeSingle();
   if (lookupError) return new Response("Could not load payment record", { status: 500 });
-  if (!storedPayment || storedPayment.user_id !== payment.metadata.user_id) {
+  if (
+    !storedPayment ||
+    storedPayment.user_id !== payment.metadata.user_id ||
+    storedPayment.is_test !== (mode === "test")
+  ) {
     return new Response("Payment record mismatch", { status: 400 });
+  }
+
+  if (mode === "test") {
+    const { error: updateTestPaymentError } = await admin.from("pro_payments")
+      .update({ status: "test_succeeded" }).eq("payment_id", payment.id);
+    if (updateTestPaymentError) return new Response("Could not update test payment", { status: 500 });
+    return new Response("Test payment recorded. LifePlan Pro remains locked.", { status: 200 });
   }
 
   const { error: grantError } = await admin.from("pro_entitlements").upsert({

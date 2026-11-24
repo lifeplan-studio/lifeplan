@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LifePlan — Финансы</title>
-  <link rel="stylesheet" href="style.css?v=20261124-pro-studio">
+  <link rel="stylesheet" href="style.css?v=20261124-pro-sections">
 </head>
 <body>
 
@@ -19,6 +19,14 @@
         <a href="#" data-modal="operations-modal"><span class="nav-icon">↔</span> Операции</a>
         <a href="#" data-modal="goals-modal"><span class="nav-icon">◎</span> Накопления</a>
         <a href="#" data-modal="statistics-modal"><span class="nav-icon">▥</span> Статистика</a>
+      </nav>
+
+      <nav class="pro-navigation" id="pro-navigation" aria-label="Инструменты LifePlan Pro" hidden>
+        <p class="nav-label">LIFEPLAN PRO</p>
+        <a href="#" data-pro-section="overview"><span class="nav-icon">✧</span> Обзор месяца</a>
+        <a href="#" data-pro-section="budgets"><span class="nav-icon">⌁</span> Лимиты расходов</a>
+        <a href="#" data-pro-section="goal"><span class="nav-icon">↗</span> Прогноз цели</a>
+        <a href="#" data-pro-section="export"><span class="nav-icon">⇩</span> Экспорт отчёта</a>
       </nav>
 
       <a class="sidebar-pro-link" href="#" data-modal="pro-modal">
@@ -82,7 +90,7 @@
         <section class="panel" id="transactions">
           <div class="panel-header">
             <h2>Последние операции</h2>
-            <span>История</span>
+            <button type="button" class="history-link" id="open-history-button">История <span aria-hidden="true">→</span></button>
           </div>
     <div class="operation-tabs">
       <button class="tab active" onclick="showOperations('all', this)">
@@ -172,6 +180,60 @@
       </footer>
 
     </main>
+
+    <main class="content pro-page" id="pro-page" hidden>
+      <header class="pro-page-header">
+        <div>
+          <button type="button" class="pro-back-button" id="pro-page-back">← Главная</button>
+          <h1 id="pro-page-title">Обзор месяца</h1>
+          <p id="pro-page-description">Коротко о твоих финансах за этот месяц.</p>
+        </div>
+        <span class="pro-page-badge">✦ PRO</span>
+      </header>
+
+      <section class="pro-workspace" id="pro-workspace" hidden>
+        <div class="pro-page-panel" data-pro-panel="overview" hidden>
+          <article class="pro-insight-banner">
+            <span class="insight-orb" aria-hidden="true">✧</span>
+            <div><span class="eyebrow">ПОДСКАЗКА LIFEPLAN</span><p id="pro-insight-text">Добавь операции, чтобы увидеть разбор месяца.</p></div>
+          </article>
+          <div class="pro-metrics-grid">
+            <article class="pro-metric-card"><span>Свободно в этом месяце</span><strong id="pro-month-balance">—</strong><small>доходы минус расходы</small></article>
+            <article class="pro-metric-card"><span>Расход в день</span><strong id="pro-daily-spend">—</strong><small>среднее с начала месяца</small></article>
+            <article class="pro-metric-card"><span>Крупнейшая категория</span><strong id="pro-top-category">—</strong><small id="pro-top-category-share">расходы этого месяца</small></article>
+          </div>
+          <div class="pro-page-hint"><span>Дальше</span><p>Настрой лимиты расходов, чтобы следить за бюджетом в течение месяца.</p><button type="button" data-open-pro-section="budgets">Перейти к лимитам →</button></div>
+        </div>
+
+        <section class="pro-page-panel" data-pro-panel="budgets" id="pro-budget-panel" hidden>
+          <article class="pro-tool-card" id="pro-budget-card">
+            <div class="pro-card-heading"><div><span class="eyebrow">ТВОИ ПРАВИЛА</span><h4>Лимиты на расходы</h4></div><span class="pro-card-icon">⌁</span></div>
+            <p class="pro-card-description">Задай комфортный максимум на месяц. Прогресс обновляется автоматически.</p>
+            <div id="pro-budget-list" class="pro-budget-list"></div>
+            <div class="pro-budget-actions"><span id="pro-budget-message" aria-live="polite"></span><button type="button" class="pro-save-button" id="pro-save-budgets">Сохранить лимиты</button></div>
+          </article>
+        </section>
+
+        <section class="pro-page-panel" data-pro-panel="goal" id="pro-goal-panel" hidden>
+          <article class="pro-tool-card goal-forecast-card" id="pro-goal-card">
+            <div class="pro-card-heading"><div><span class="eyebrow">БОЛЬШАЯ ЦЕЛЬ</span><h4>Прогноз накоплений</h4></div><span class="pro-card-icon">↗</span></div>
+            <p class="pro-card-description">Ориентировочный срок на основе твоих доходов и расходов за последние месяцы.</p>
+            <div id="pro-goal-forecast" class="pro-goal-forecast"></div>
+          </article>
+        </section>
+
+        <section class="pro-page-panel" data-pro-panel="export" hidden>
+          <article class="pro-tool-card pro-export-card">
+            <span class="pro-export-icon">⇩</span>
+            <span class="eyebrow">ТВОИ ДАННЫЕ</span>
+            <h2>Экспорт операций</h2>
+            <p class="pro-card-description">Скачай полную историю в формате CSV. Файл можно открыть в Excel или сохранить как архив.</p>
+            <button type="button" class="pro-export-button" id="pro-export-button"><span>⇩</span> Скачать CSV-отчёт</button>
+            <p class="pro-export-caption">В отчёт попадут операции этого аккаунта с датами, категориями и суммами.</p>
+          </article>
+        </section>
+      </section>
+    </main>
   </div>
   <!-- Модальное окно операций -->
 <div class="feature-overlay" id="operations-modal">
@@ -213,9 +275,9 @@
                     <div class="pro-price-row">
                         <strong>199 ₽</strong><span>один раз · навсегда</span>
                     </div>
-                    <button type="button" class="pro-buy-button" id="buy-pro-button">Открыть все возможности</button>
+                    <button type="button" class="pro-buy-button" id="buy-pro-button">Проверить тестовую оплату — 199 ₽</button>
                     <p class="pro-purchase-message" id="pro-purchase-message" aria-live="polite"></p>
-                    <small class="pro-test-note">Сейчас оплата проходит в тестовом режиме ЮKassa.</small>
+                    <small class="pro-test-note">Тестовый платёж не спишет деньги и не откроет Pro. Боевой магазин подключим после активации ЮKassa для приёма реальных платежей.</small>
                 </div>
                 <div class="pro-hero-art" aria-hidden="true">
                     <div class="pro-art-orbit orbit-one"></div>
@@ -260,35 +322,14 @@
                 </div>
             </section>
 
-            <section class="pro-workspace" id="pro-workspace" hidden>
-                <div class="pro-section-heading workspace-heading">
-                    <div><span class="eyebrow">ТВОЯ ПАНЕЛЬ</span><h3>План на этот месяц</h3></div>
-                    <button type="button" class="pro-export-button" id="pro-export-button"><span>⇩</span> Скачать отчёт</button>
-                </div>
-                <article class="pro-insight-banner">
-                    <span class="insight-orb" aria-hidden="true">✧</span>
-                    <div><span class="eyebrow">ПОДСКАЗКА LIFEPLAN</span><p id="pro-insight-text">Добавь операции, чтобы увидеть разбор месяца.</p></div>
-                </article>
-                <div class="pro-metrics-grid">
-                    <article class="pro-metric-card"><span>Свободно в этом месяце</span><strong id="pro-month-balance">—</strong><small>доходы минус расходы</small></article>
-                    <article class="pro-metric-card"><span>Расход в день</span><strong id="pro-daily-spend">—</strong><small>среднее с начала месяца</small></article>
-                    <article class="pro-metric-card"><span>Крупнейшая категория</span><strong id="pro-top-category">—</strong><small id="pro-top-category-share">расходы этого месяца</small></article>
-                </div>
-                <div class="pro-workspace-grid">
-                    <section class="pro-tool-card">
-                        <div class="pro-card-heading"><div><span class="eyebrow">ТВОИ ПРАВИЛА</span><h4>Лимиты на расходы</h4></div><span class="pro-card-icon">⌁</span></div>
-                        <p class="pro-card-description">Задай комфортный максимум на месяц. Прогресс обновляется автоматически.</p>
-                        <div id="pro-budget-list" class="pro-budget-list"></div>
-                        <div class="pro-budget-actions"><span id="pro-budget-message" aria-live="polite"></span><button type="button" class="pro-save-button" id="pro-save-budgets">Сохранить лимиты</button></div>
-                    </section>
-                    <section class="pro-tool-card goal-forecast-card">
-                        <div class="pro-card-heading"><div><span class="eyebrow">БОЛЬШАЯ ЦЕЛЬ</span><h4>Твой ориентир</h4></div><span class="pro-card-icon">↗</span></div>
-                        <div id="pro-goal-forecast" class="pro-goal-forecast"></div>
-                    </section>
-                </div>
+            <section class="pro-active-note" id="pro-active-note" hidden>
+                <span class="pro-active-check">✓</span>
+                <div><h3>Pro открыт</h3><p>Выбери нужный инструмент в меню слева: обзор месяца, лимиты, прогноз цели или экспорт.</p></div>
+                <button type="button" class="pro-open-button" id="pro-open-overview">Открыть обзор</button>
             </section>
         </div>
     </div>
+
 </div>
 
 <div class="modal-overlay" id="edit-modal">
@@ -385,7 +426,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase.js"></script>
-<script src="script.js?v=20261124-pro-studio"></script>
+<script src="script.js?v=20261124-pro-sections"></script>
 </body>
 </html>
 

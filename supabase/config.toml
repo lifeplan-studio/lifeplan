@@ -1,2 +1,5 @@
 [functions.yookassa-webhook]
 verify_jwt = false
+
+[functions.pro-tools]
+verify_jwt = true

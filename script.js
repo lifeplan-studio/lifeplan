@@ -25,13 +25,21 @@ if (!data.goal || typeof data.goal !== "object") {
 
 let activeUserId = null;
 let cloudSyncQueue = Promise.resolve();
-let activeUser = null;
 let hasProEntitlement = false;
-let proBudgets = {};
-
-const defaultProBudgetCategories = [
-  "Еда", "Транспорт", "Покупки", "Дом", "Подписки", "Здоровье", "Другое"
-];
+let proDashboardData = null;
+let proDashboardRequestId = 0;
+let isOperationsHistoryOpen = false;
+const localProDemo = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).get("pro_demo") === "1";
+let localDemoBudgets = {
+    "Еда": 18000,
+    "Транспорт": 6000,
+    "Покупки": 10000,
+    "Дом": 32000,
+    "Подписки": 1500,
+    "Здоровье": 5000,
+    "Другое": 7000
+};
 
 function saveData() {
   if (!activeUserId) return;
@@ -73,14 +81,16 @@ function saveData() {
     alert(`Не удалось сохранить данные в облако: ${error.message || "неизвестная ошибка"}`);
     return false;
   });
-  return cloudSyncQueue;
+  return cloudSyncQueue.then(saved => {
+    if (saved && hasProEntitlement && activeUserId === userId) refreshProDashboard();
+    return saved;
+  });
 }
 
 async function loadUserData(user) {
   if (!user) {
     activeUserId = null;
-    activeUser = null;
-    proBudgets = {};
+    proDashboardData = null;
     data = { operations: [], goal: { name: "", amount: 0 } };
     render();
     setProEntitlement(false);
@@ -89,10 +99,7 @@ async function loadUserData(user) {
 
   const isSwitchingUser = activeUserId !== user.id;
   activeUserId = user.id;
-  activeUser = user;
-  proBudgets = user.user_metadata?.lifeplan_pro_budgets && typeof user.user_metadata.lifeplan_pro_budgets === "object"
-    ? { ...user.user_metadata.lifeplan_pro_budgets }
-    : {};
+  if (isSwitchingUser) proDashboardData = null;
   if (isSwitchingUser) setProEntitlement(false);
   const userId = user.id;
   try {
@@ -214,19 +221,24 @@ function renderGoal(balance) {
 }
 
 // Отображение операций
-function renderOperations(type = "all") {
+function renderOperations(type = "all", showAll = isOperationsHistoryOpen) {
   const container = document.getElementById("operations");
+  const sortedOperations = [...data.operations].sort((a, b) => {
+    const dateA = parseOperationDate(a.date)?.getTime() || 0;
+    const dateB = parseOperationDate(b.date)?.getTime() || 0;
+    return dateB - dateA;
+  });
 
   const filtered = type === "all"
-    ? data.operations
-    : data.operations.filter(item => item.type === type);
+    ? sortedOperations
+    : sortedOperations.filter(item => item.type === type);
 
   if (!filtered.length) {
     container.innerHTML = '<p class="empty">Операций пока нет</p>';
     return;
   }
 
-  container.innerHTML = filtered.slice(0, 10).map(item => {
+  container.innerHTML = (showAll ? filtered : filtered.slice(0, 10)).map(item => {
     const isIncome = item.type === "income";
 
     return `
@@ -547,6 +559,11 @@ const featurePlaceholders = new Map();
 function openFeatureModal(modalId) {
     closeFeatureModal();
 
+    if (modalId === "operations-modal") {
+        isOperationsHistoryOpen = true;
+        renderOperations("all", true);
+    }
+
     const modal = document.getElementById(modalId);
     const content = document.getElementById(
         modalId.replace("-modal", "-modal-content")
@@ -583,19 +600,80 @@ function closeFeatureModal() {
 
     featurePlaceholders.clear();
     document.body.style.overflow = "";
+    if (isOperationsHistoryOpen) {
+        isOperationsHistoryOpen = false;
+        renderOperations("all", false);
+        const allTab = document.querySelector('.operation-tabs .tab[onclick*="all"]');
+        if (allTab) allTab.classList.add("active");
+        document.querySelectorAll('.operation-tabs .tab:not([onclick*="all"])').forEach(tab => tab.classList.remove("active"));
+    }
 }
 
 // Нажатия на пункты бокового меню
 document.querySelectorAll("[data-modal]").forEach(link => {
     link.addEventListener("click", event => {
         event.preventDefault();
+        if (link.dataset.modal !== "pro-modal") showHomePage();
         openFeatureModal(link.dataset.modal);
     });
 });
 
+const proSectionDetails = {
+    overview: { title: "Обзор месяца", description: "Коротко о твоих финансах за этот месяц." },
+    budgets: { title: "Лимиты расходов", description: "Задай бюджет и следи, сколько осталось в каждой категории." },
+    goal: { title: "Прогноз цели", description: "Узнай примерный срок накоплений по твоему текущему темпу." },
+    export: { title: "Экспорт отчёта", description: "Сохрани историю операций в удобном табличном формате." }
+};
+
+function showProSection(section) {
+    if (!hasProEntitlement || !proSectionDetails[section]) return;
+    closeFeatureModal();
+    document.getElementById("home").hidden = true;
+    document.getElementById("pro-page").hidden = false;
+    document.getElementById("pro-workspace").hidden = false;
+    document.getElementById("pro-page-title").textContent = proSectionDetails[section].title;
+    document.getElementById("pro-page-description").textContent = proSectionDetails[section].description;
+    document.querySelectorAll("[data-pro-panel]").forEach(panel => {
+        panel.hidden = panel.dataset.proPanel !== section;
+    });
+    document.querySelectorAll("[data-pro-section]").forEach(item => {
+        item.classList.toggle("active", item.dataset.proSection === section);
+    });
+    renderProDashboard();
+}
+
+function showHomePage() {
+    closeFeatureModal();
+    document.getElementById("pro-page").hidden = true;
+    document.getElementById("home").hidden = false;
+    document.querySelectorAll("[data-pro-section]").forEach(item => item.classList.remove("active"));
+    document.querySelector('[data-page="home"]').classList.add("active");
+}
+
+document.querySelectorAll("[data-pro-section]").forEach(link => {
+    link.addEventListener("click", event => {
+        event.preventDefault();
+        showProSection(link.dataset.proSection);
+    });
+});
+
+document.querySelectorAll("[data-open-pro-section]").forEach(button => {
+    button.addEventListener("click", () => showProSection(button.dataset.openProSection));
+});
+
+document.getElementById("pro-page-back").addEventListener("click", showHomePage);
+document.getElementById("pro-open-overview").addEventListener("click", () => {
+    closeFeatureModal();
+    showProSection("overview");
+});
+
+document.getElementById("open-history-button").addEventListener("click", () => {
+    openFeatureModal("operations-modal");
+});
+
 // Возврат на главную
 document.querySelector('[data-page="home"]').addEventListener("click", () => {
-    closeFeatureModal();
+    showHomePage();
 });
 
 // Закрытие при нажатии на затемнённый фон
@@ -638,6 +716,7 @@ const settingsMessage = document.getElementById("settings-message");
 const newPasswordInput = document.getElementById("new-password");
 
 function setProEntitlement(isActive) {
+    const wasActive = hasProEntitlement;
     hasProEntitlement = isActive;
     const buyButton = document.getElementById("buy-pro-button");
     const message = document.getElementById("pro-purchase-message");
@@ -647,9 +726,18 @@ function setProEntitlement(isActive) {
     const heading = document.getElementById("pro-heading");
     const priceRow = document.querySelector(".pro-price-row");
     const testNote = document.querySelector(".pro-test-note");
+    const activeNote = document.getElementById("pro-active-note");
+    document.getElementById("pro-navigation").hidden = !isActive;
+    activeNote.hidden = !isActive;
 
     preview.hidden = isActive;
     workspace.hidden = !isActive;
+    if (!isActive) {
+        document.getElementById("pro-page").hidden = true;
+        document.getElementById("home").hidden = false;
+        document.querySelectorAll("[data-pro-section]").forEach(item => item.classList.remove("active"));
+        document.querySelector('[data-page="home"]').classList.add("active");
+    }
     hero.classList.toggle("is-unlocked", isActive);
     heading.textContent = isActive ? "LifePlan Pro уже с тобой" : "Твой финансовый план — на уровень выше";
     priceRow.hidden = isActive;
@@ -659,8 +747,10 @@ function setProEntitlement(isActive) {
         message.textContent = "LifePlan Pro активирован для этого аккаунта навсегда.";
     } else {
         buyButton.hidden = false;
+        proDashboardData = null;
     }
     renderProDashboard();
+    if (isActive && !localProDemo && (!wasActive || !proDashboardData)) refreshProDashboard();
 }
 
 function getCurrentMonthOperations() {
@@ -671,144 +761,199 @@ function getCurrentMonthOperations() {
     });
 }
 
-function renderProDashboard() {
-    const workspace = document.getElementById("pro-workspace");
-    if (!workspace) return;
-
+function createLocalProDemoReport() {
     const monthOperations = getCurrentMonthOperations();
     const expenses = monthOperations.filter(item => item.type === "expense");
     const incomeTotal = monthOperations
         .filter(item => item.type === "income")
-        .reduce((sum, item) => sum + Number(item.amount), 0);
-    const expenseTotal = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
+        .reduce((total, item) => total + Number(item.amount), 0);
+    const expenseTotal = expenses.reduce((total, item) => total + Number(item.amount), 0);
     const categoryTotals = expenses.reduce((totals, item) => {
-        const category = String(item.category || "Без категории").trim() || "Без категории";
+        const category = item.category || "Без категории";
         totals[category] = (totals[category] || 0) + Number(item.amount);
         return totals;
     }, Object.create(null));
     const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
-    const now = new Date();
-    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const previousExpenseTotal = data.operations
-        .filter(item => {
-            const date = parseOperationDate(item.date);
-            return item.type === "expense" && date && date.getFullYear() === previousMonth.getFullYear() && date.getMonth() === previousMonth.getMonth();
-        })
-        .reduce((sum, item) => sum + Number(item.amount), 0);
-    const spendingTrend = previousExpenseTotal > 0
-        ? ` По сравнению с прошлым месяцем расходы ${expenseTotal > previousExpenseTotal ? "выросли" : "снизились"} на ${Math.abs(Math.round((expenseTotal - previousExpenseTotal) / previousExpenseTotal * 100))}%.`
-        : "";
+    const budgetRows = [...new Set([...Object.keys(localDemoBudgets), ...Object.keys(categoryTotals)])].map(category => {
+        const spent = categoryTotals[category] || 0;
+        const limit = Number(localDemoBudgets[category]) || 0;
+        const progress = limit ? Math.min(100, Math.round(spent / limit * 100)) : 0;
+        const state = limit && spent >= limit ? "over" : limit && spent >= limit * .8 ? "near" : "";
+        const status = !limit ? "Задай лимит" : spent >= limit ? `Превышен на ${money(spent - limit)}` : `Осталось ${money(limit - spent)}`;
+        return { category, spent, limit, progress, state, status };
+    });
+    const activeBudget = budgetRows.find(row => row.limit && row.spent >= row.limit);
+    const nearBudget = budgetRows.find(row => row.limit && row.spent >= row.limit * .8);
+    const insight = activeBudget
+        ? `Лимит «${activeBudget.category}» достигнут. Уже потрачено ${money(activeBudget.spent)} из ${money(activeBudget.limit)}.`
+        : nearBudget
+            ? `В категории «${nearBudget.category}» осталось меньше 20% лимита. Хороший момент проверить планируемые покупки.`
+            : topCategory
+                ? `Больше всего в этом месяце уходит на «${topCategory[0]}» — ${money(topCategory[1])}.`
+                : "Добавь операции, чтобы увидеть разбор месяца.";
 
-    document.getElementById("pro-month-balance").textContent = money(incomeTotal - expenseTotal);
-    document.getElementById("pro-daily-spend").textContent = money(expenseTotal / Math.max(1, new Date().getDate()));
-    document.getElementById("pro-top-category").textContent = topCategory ? topCategory[0] : "—";
-    document.getElementById("pro-top-category-share").textContent = topCategory && expenseTotal
-        ? `${Math.round(topCategory[1] / expenseTotal * 100)}% всех расходов`
-        : "добавь расходы для анализа";
-
-    const insight = document.getElementById("pro-insight-text");
-    const activeBudget = Object.entries(proBudgets).find(([category, limit]) =>
-        Number(limit) > 0 && (categoryTotals[category] || 0) >= Number(limit)
-    );
-    const almostBudget = Object.entries(proBudgets).find(([category, limit]) =>
-        Number(limit) > 0 && (categoryTotals[category] || 0) >= Number(limit) * 0.8
-    );
-
-    if (!monthOperations.length) {
-        insight.textContent = "В этом месяце пока нет операций. Добавь доходы и расходы — здесь появятся персональные подсказки.";
-    } else if (activeBudget) {
-        insight.textContent = `Лимит «${activeBudget[0]}» достигнут. Уже потрачено ${money(categoryTotals[activeBudget[0]] || 0)} из ${money(Number(activeBudget[1]))}.${spendingTrend}`;
-    } else if (almostBudget) {
-        insight.textContent = `В категории «${almostBudget[0]}» осталось меньше 20% лимита. Хороший момент проверить планируемые покупки.${spendingTrend}`;
-    } else if (topCategory) {
-        insight.textContent = `Больше всего в этом месяце уходит на «${topCategory[0]}» — ${money(topCategory[1])}. Поставь лимит, чтобы держать эту статью под контролем.${spendingTrend}`;
-    } else {
-        insight.textContent = "Здорово: расходы пока не записаны. Добавляй операции — LifePlan соберёт ясную картину месяца.";
+    let goal = null;
+    if (data.goal?.name && Number(data.goal.amount) > 0) {
+        const saved = Math.max(0, data.operations.reduce((total, item) =>
+            total + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
+        ));
+        const target = Number(data.goal.amount);
+        const progress = Math.min(100, Math.round(saved / target * 100));
+        const now = new Date();
+        const monthlySavings = [];
+        for (let offset = 0; offset < 3; offset += 1) {
+            const month = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+            const entries = data.operations.filter(item => {
+                const date = parseOperationDate(item.date);
+                return date && date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth();
+            });
+            if (entries.length) monthlySavings.push(entries.reduce((total, item) =>
+                total + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
+            ));
+        }
+        const average = monthlySavings.length ? monthlySavings.reduce((total, amount) => total + amount, 0) / monthlySavings.length : 0;
+        const remaining = Math.max(0, target - saved);
+        let forecast = "Добавь операции за последние месяцы, чтобы посчитать темп.";
+        if (!remaining) forecast = "Цель уже достигнута — поздравляем!";
+        else if (average > 0) {
+            const date = new Date(now.getFullYear(), now.getMonth() + Math.ceil(remaining / average), 1);
+            forecast = `При текущем темпе — примерно ${date.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}.`;
+        } else if (monthlySavings.length) forecast = "Пока темп накоплений не положительный. Попробуй выбрать комфортный ежемесячный взнос.";
+        goal = { name: data.goal.name, saved, target, progress, forecast };
     }
 
-    const budgetCategories = [...new Set([
-        ...defaultProBudgetCategories,
-        ...Object.keys(categoryTotals)
-    ])];
-    document.getElementById("pro-budget-list").innerHTML = budgetCategories.map(category => {
-        const spent = categoryTotals[category] || 0;
-        const limit = Number(proBudgets[category]) || 0;
-        const progress = limit ? Math.min(100, Math.round(spent / limit * 100)) : 0;
-        const stateClass = limit && spent >= limit ? "over" : limit && spent >= limit * 0.8 ? "near" : "";
-        let status = "Задай лимит";
-        if (limit && spent >= limit) status = `Превышен на ${money(spent - limit)}`;
-        else if (limit) status = `Осталось ${money(limit - spent)}`;
-
-        return `
-          <div class="budget-row ${stateClass}">
-            <div class="budget-row-top"><label for="budget-${escapeHTML(category)}">${escapeHTML(category)}</label><span>${money(spent)}</span></div>
-            <div class="budget-meter"><span style="width:${progress}%"></span></div>
-            <div class="budget-row-bottom"><small>${status}</small><label class="budget-input-wrap"><span>Лимит</span><input id="budget-${escapeHTML(category)}" data-budget-input="${escapeHTML(category)}" type="number" min="0" step="100" value="${limit || ""}" placeholder="₽"></label></div>
-          </div>
-        `;
-    }).join("");
-
-    renderProGoalForecast();
+    return {
+        insight,
+        monthBalance: incomeTotal - expenseTotal,
+        dailySpend: expenseTotal / Math.max(1, new Date().getDate()),
+        topCategory: topCategory?.[0] || "—",
+        topCategoryShare: topCategory && expenseTotal ? `${Math.round(topCategory[1] / expenseTotal * 100)}% всех расходов` : "добавь расходы для анализа",
+        budgetRows,
+        goal,
+    };
 }
 
-function renderProGoalForecast() {
-    const container = document.getElementById("pro-goal-forecast");
-    const goal = data.goal;
-    if (!goal?.name || !Number(goal.amount)) {
-        container.innerHTML = `
-          <div class="forecast-empty"><span class="forecast-icon">◎</span><h5>Сначала выбери цель</h5><p>Добавь цель в разделе «Накопления», и здесь появится прогноз срока.</p></div>
-        `;
+function activateLocalProDemo() {
+    const today = new Date();
+    const formatDate = date => [date.getDate(), date.getMonth() + 1, date.getFullYear()]
+        .map((part, index) => index < 2 ? String(part).padStart(2, "0") : String(part))
+        .join(".");
+    const sampleOperation = (monthOffset, day, name, amount, type, category) => ({
+        id: crypto.randomUUID(),
+        date: formatDate(new Date(today.getFullYear(), today.getMonth() + monthOffset, day)),
+        name,
+        amount,
+        type,
+        category,
+    });
+
+    const monthly = monthOffset => [
+        sampleOperation(monthOffset, 1, "Зарплата", 92000, "income", "Доход"),
+        sampleOperation(monthOffset, 2, "Аренда", 30000, "expense", "Дом"),
+        sampleOperation(monthOffset, 4, "Продукты", 16000, "expense", "Еда"),
+        sampleOperation(monthOffset, 7, "Транспорт", 4200, "expense", "Транспорт"),
+        sampleOperation(monthOffset, 10, "Покупки", 8000, "expense", "Покупки"),
+        sampleOperation(monthOffset, 12, "Подписки", 1300, "expense", "Подписки"),
+        sampleOperation(monthOffset, 16, "Аптека", 2500, "expense", "Здоровье"),
+        sampleOperation(monthOffset, 20, "Кафе", 4000, "expense", "Еда"),
+    ];
+
+    data = {
+        operations: [...monthly(-2), ...monthly(-1), ...monthly(0)].reverse(),
+        goal: { name: "Отпуск в Японии", amount: 120000 },
+    };
+    localDemoBudgets = { "Еда": 22000, "Транспорт": 6000, "Покупки": 10000, "Дом": 32000, "Подписки": 1500, "Здоровье": 5000, "Другое": 7000 };
+    proDashboardData = createLocalProDemoReport();
+    authScreen.classList.add("hidden");
+    setAccountUser({ email: "demo@lifeplan.local" });
+    setProEntitlement(true);
+    document.getElementById("pro-heading").textContent = "Демо LifePlan Pro";
+    document.getElementById("pro-purchase-message").textContent = "Примерные данные. Покупка не совершалась, Pro в аккаунте не активирован.";
+    render();
+}
+
+function renderProDashboard() {
+    const workspace = document.getElementById("pro-workspace");
+    if (!workspace) return;
+    if (!hasProEntitlement) {
+        workspace.hidden = true;
+        document.getElementById("pro-budget-list").replaceChildren();
+        document.getElementById("pro-goal-forecast").replaceChildren();
         return;
     }
 
-    const currentBalance = data.operations.reduce((balance, item) =>
-        balance + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
-    );
-    const saved = Math.max(0, currentBalance);
-    const remaining = Math.max(0, Number(goal.amount) - saved);
-    const progress = Math.min(100, Math.round(saved / Number(goal.amount) * 100));
-    const now = new Date();
-    const monthlySavings = [];
-
-    for (let offset = 0; offset < 3; offset += 1) {
-        const monthDate = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-        const monthItems = data.operations.filter(item => {
-            const date = parseOperationDate(item.date);
-            return date && date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth();
-        });
-        if (!monthItems.length) continue;
-        monthlySavings.push(monthItems.reduce((total, item) =>
-            total + (item.type === "income" ? 1 : -1) * Number(item.amount), 0
-        ));
+    workspace.hidden = false;
+    if (!proDashboardData) {
+        document.getElementById("pro-insight-text").textContent = "Загружаю персональный финансовый разбор…";
+        document.getElementById("pro-budget-list").replaceChildren();
+        document.getElementById("pro-goal-forecast").replaceChildren();
+        return;
+    }
+    if (proDashboardData.error) {
+        document.getElementById("pro-insight-text").textContent = proDashboardData.error;
+        return;
     }
 
-    const averageMonthlySavings = monthlySavings.length
-        ? monthlySavings.reduce((sum, amount) => sum + amount, 0) / monthlySavings.length
-        : 0;
-    let forecast = "Запиши операции за этот месяц, чтобы рассчитать темп.";
-    if (remaining === 0) {
-        forecast = "Цель уже достигнута — поздравляем!";
-    } else if (averageMonthlySavings > 0) {
-        const finishDate = new Date(now.getFullYear(), now.getMonth() + Math.ceil(remaining / averageMonthlySavings), 1);
-        forecast = `При текущем темпе — примерно ${finishDate.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}.`;
-    } else if (monthlySavings.length) {
-        forecast = "Пока темп накоплений не положительный. Попробуй выбрать комфортный ежемесячный взнос.";
-    }
+    const report = proDashboardData;
+    document.getElementById("pro-insight-text").textContent = report.insight;
+    document.getElementById("pro-month-balance").textContent = money(report.monthBalance);
+    document.getElementById("pro-daily-spend").textContent = money(report.dailySpend);
+    document.getElementById("pro-top-category").textContent = report.topCategory;
+    document.getElementById("pro-top-category-share").textContent = report.topCategoryShare;
+    document.getElementById("pro-budget-list").innerHTML = report.budgetRows.map(row => `
+      <div class="budget-row ${escapeHTML(row.state)}">
+        <div class="budget-row-top"><label for="budget-${escapeHTML(row.category)}">${escapeHTML(row.category)}</label><span>${money(row.spent)}</span></div>
+        <div class="budget-meter"><span style="width:${row.progress}%"></span></div>
+        <div class="budget-row-bottom"><small>${escapeHTML(row.status)}</small><label class="budget-input-wrap"><span>Лимит</span><input id="budget-${escapeHTML(row.category)}" data-budget-input="${escapeHTML(row.category)}" type="number" min="0" step="100" value="${row.limit || ""}" placeholder="₽"></label></div>
+      </div>
+    `).join("");
 
-    container.innerHTML = `
-      <div class="goal-forecast-title"><span class="forecast-icon">◎</span><div><small>ТЫ НАКАПЛИВАЕШЬ НА</small><h5>${escapeHTML(goal.name)}</h5></div></div>
-      <div class="goal-forecast-amounts"><strong>${money(saved)}</strong><span>из ${money(Number(goal.amount))}</span></div>
-      <div class="forecast-meter"><span style="width:${progress}%"></span></div>
-      <div class="forecast-percent">${progress}% пути</div>
-      <div class="forecast-result"><span>⌁</span><p>${forecast}</p></div>
-      <small class="forecast-caption">Оценка по операциям за последние месяцы. Это ориентир, а не обещание доходности.</small>
-    `;
+    const goalContainer = document.getElementById("pro-goal-forecast");
+    if (!report.goal) {
+        goalContainer.innerHTML = `
+          <div class="forecast-empty"><span class="forecast-icon">◎</span><h5>Сначала выбери цель</h5><p>Добавь цель в разделе «Накопления», и здесь появится прогноз срока.</p></div>
+        `;
+    } else {
+        goalContainer.innerHTML = `
+          <div class="goal-forecast-title"><span class="forecast-icon">◎</span><div><small>ТЫ НАКАПЛИВАЕШЬ НА</small><h5>${escapeHTML(report.goal.name)}</h5></div></div>
+          <div class="goal-forecast-amounts"><strong>${money(report.goal.saved)}</strong><span>из ${money(report.goal.target)}</span></div>
+          <div class="forecast-meter"><span style="width:${report.goal.progress}%"></span></div>
+          <div class="forecast-percent">${report.goal.progress}% пути</div>
+          <div class="forecast-result"><span>⌁</span><p>${escapeHTML(report.goal.forecast)}</p></div>
+          <small class="forecast-caption">Оценка по операциям за последние месяцы. Это ориентир, а не обещание доходности.</small>
+        `;
+    }
+}
+
+async function refreshProDashboard() {
+    if (!hasProEntitlement) return;
+    if (localProDemo) {
+        proDashboardData = createLocalProDemoReport();
+        renderProDashboard();
+        return;
+    }
+    if (!activeUserId) return;
+    const userId = activeUserId;
+    const requestId = ++proDashboardRequestId;
+    proDashboardData = null;
+    renderProDashboard();
+
+    const { data: report, error } = await supabaseClient.functions.invoke("pro-tools", {
+        body: { action: "dashboard" }
+    });
+    if (requestId !== proDashboardRequestId || activeUserId !== userId || !hasProEntitlement) return;
+    if (error) {
+        proDashboardData = { error: error.message || "Не удалось загрузить Pro-инструменты." };
+    } else {
+        proDashboardData = report;
+    }
+    renderProDashboard();
 }
 
 async function saveProBudgets() {
     const message = document.getElementById("pro-budget-message");
     const button = document.getElementById("pro-save-budgets");
-    if (!activeUser || !hasProEntitlement) return;
+    if (!hasProEntitlement) return;
 
     const nextBudgets = {};
     document.querySelectorAll("[data-budget-input]").forEach(input => {
@@ -818,19 +963,23 @@ async function saveProBudgets() {
         }
     });
 
+    if (localProDemo) {
+        localDemoBudgets = nextBudgets;
+        proDashboardData = createLocalProDemoReport();
+        renderProDashboard();
+        message.textContent = "Демо: лимиты применены только в этом окне.";
+        return;
+    }
+
     button.disabled = true;
     message.textContent = "Сохраняем…";
     try {
-        const metadata = {
-            ...(activeUser.user_metadata || {}),
-            lifeplan_pro_budgets: nextBudgets
-        };
-        const { data: result, error } = await supabaseClient.auth.updateUser({ data: metadata });
+        const { error } = await supabaseClient.functions.invoke("pro-tools", {
+            body: { action: "save-budgets", budgets: nextBudgets }
+        });
         if (error) throw error;
-        activeUser = result.user;
-        proBudgets = nextBudgets;
         message.textContent = "Лимиты сохранены в аккаунте.";
-        renderProDashboard();
+        await refreshProDashboard();
     } catch (error) {
         message.textContent = error.message || "Не удалось сохранить лимиты.";
     } finally {
@@ -840,39 +989,54 @@ async function saveProBudgets() {
 
 function exportProReport() {
     if (!hasProEntitlement) return;
-    if (!data.operations.length) {
-        document.getElementById("pro-insight-text").textContent = "Пока нечего выгружать. Добавь хотя бы одну операцию.";
+    const button = document.getElementById("pro-export-button");
+    const message = document.getElementById("pro-insight-text");
+    if (localProDemo) {
+        const cell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
+        const rows = [
+            ["Дата", "Тип", "Название", "Категория", "Сумма, ₽"],
+            ...data.operations.map(item => [item.date, item.type === "income" ? "Доход" : "Расход", item.name, item.category, item.amount])
+        ];
+        const csv = "\uFEFF" + rows.map(row => row.map(cell).join(";")).join("\r\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "lifeplan-pro-demo.csv";
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        message.textContent = "Демо-отчёт скачан.";
         return;
     }
-
-    const escapeCell = value => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const rows = [
-        ["Дата", "Тип", "Название", "Категория", "Сумма, ₽"],
-        ...data.operations.map(item => [
-            item.date || "",
-            item.type === "income" ? "Доход" : "Расход",
-            item.name || "",
-            item.category || "",
-            Number(item.amount) || 0
-        ])
-    ];
-    const csv = "\uFEFF" + rows.map(row => row.map(escapeCell).join(";")).join("\r\n");
-    const blobUrl = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const download = document.createElement("a");
-    download.href = blobUrl;
-    download.download = `lifeplan-otchet-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(download);
-    download.click();
-    download.remove();
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    button.disabled = true;
+    message.textContent = "Готовлю отчёт…";
+    supabaseClient.functions.invoke("pro-tools", { body: { action: "export-csv" } })
+        .then(({ data: result, error }) => {
+            if (error) throw error;
+            if (!result?.csv) throw new Error(result?.error || "Не удалось собрать отчёт.");
+            const blobUrl = URL.createObjectURL(new Blob([result.csv], { type: "text/csv;charset=utf-8" }));
+            const download = document.createElement("a");
+            download.href = blobUrl;
+            download.download = result.filename || "lifeplan-otchet.csv";
+            document.body.appendChild(download);
+            download.click();
+            download.remove();
+            window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            message.textContent = "Отчёт скачан. Внутри все твои операции.";
+        })
+        .catch(error => {
+            message.textContent = error.message || "Не удалось скачать отчёт.";
+        })
+        .finally(() => {
+            button.disabled = false;
+        });
 }
 
-async function refreshProEntitlement(userId, retryCount = 0) {
+async function refreshProEntitlement(userId, retryCount = 0, checkPaymentReturn = false) {
     const message = document.getElementById("pro-purchase-message");
-    const returnedFromPayment = retryCount === 0 && new URLSearchParams(window.location.search).has("pro_payment");
+    const returnedFromPayment = checkPaymentReturn || retryCount === 0 && new URLSearchParams(window.location.search).has("pro_payment");
     const { data: entitlement, error } = await supabaseClient
         .from("pro_entitlements")
-        .select("user_id")
+        .select("user_id,payment_id")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -880,11 +1044,39 @@ async function refreshProEntitlement(userId, retryCount = 0) {
         console.error("Не удалось проверить LifePlan Pro:", error);
         return;
     }
-    setProEntitlement(Boolean(entitlement));
+
+    let purchase = null;
+    if (entitlement?.payment_id) {
+        const { data, error: paymentError } = await supabaseClient
+            .from("pro_payments")
+            .select("status,is_test")
+            .eq("payment_id", entitlement.payment_id)
+            .maybeSingle();
+        if (paymentError) console.error("Не удалось проверить платёж LifePlan Pro:", paymentError);
+        else purchase = data;
+    }
+
+    let latestPayment = purchase;
+    if (!latestPayment && returnedFromPayment) {
+        const { data, error: latestPaymentError } = await supabaseClient
+            .from("pro_payments")
+            .select("status,is_test")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (latestPaymentError) console.error("Не удалось проверить тестовый платёж:", latestPaymentError);
+        else latestPayment = data;
+    }
+
+    const isPaid = Boolean(entitlement && purchase && purchase.is_test === false && purchase.status === "succeeded");
+    setProEntitlement(isPaid);
 
     if (returnedFromPayment) {
-        if (entitlement) {
+        if (isPaid) {
             message.textContent = "Оплата подтверждена. LifePlan Pro активирован навсегда.";
+        } else if (latestPayment?.is_test === true && latestPayment.status === "test_succeeded") {
+            message.textContent = "Тестовый платёж подтверждён. Денег не списали, поэтому Pro-функции остались закрыты.";
         } else {
             message.textContent = "Платёж проверяется. Если он прошёл, Pro активируется автоматически в течение минуты.";
         }
@@ -893,8 +1085,9 @@ async function refreshProEntitlement(userId, retryCount = 0) {
         window.history.replaceState({}, "", url);
     }
 
-    if (!entitlement && (returnedFromPayment || retryCount > 0) && retryCount < 8) {
-        window.setTimeout(() => refreshProEntitlement(userId, retryCount + 1), 4000);
+    const testPaymentFinished = latestPayment?.is_test === true && latestPayment.status === "test_succeeded";
+    if (!isPaid && returnedFromPayment && !testPaymentFinished && retryCount < 8) {
+        window.setTimeout(() => refreshProEntitlement(userId, retryCount + 1, true), 4000);
     }
 }
 
@@ -1115,13 +1308,17 @@ async function checkAuthSession() {
     }
 }
 
-checkAuthSession();
+if (localProDemo) {
+    activateLocalProDemo();
+} else {
+    checkAuthSession();
 
-supabaseClient.auth.onAuthStateChange((event, session) => {
-    setAccountUser(session?.user || null);
-    authScreen.classList.toggle("hidden", Boolean(session));
-    setTimeout(() => loadUserData(session?.user || null), 0);
-});
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+        setAccountUser(session?.user || null);
+        authScreen.classList.toggle("hidden", Boolean(session));
+        setTimeout(() => loadUserData(session?.user || null), 0);
+    });
+}
 
 
 

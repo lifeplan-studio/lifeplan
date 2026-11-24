@@ -17,10 +17,15 @@ Deno.serve(async (request: Request) => {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const shopId = Deno.env.get("YOOKASSA_SHOP_ID");
   const secretKey = Deno.env.get("YOOKASSA_SECRET_KEY");
+  const mode = Deno.env.get("YOOKASSA_MODE") || "test";
+  const liveSalesEnabled = Deno.env.get("LIFEPLAN_PRO_LIVE_ENABLED") === "true";
   const siteUrl = Deno.env.get("LIFEPLAN_SITE_URL");
   const salesEnabled = Deno.env.get("LIFEPLAN_PRO_SALES_ENABLED") === "true";
-  if (!salesEnabled || !supabaseUrl || !serviceRoleKey || !shopId || !secretKey || !siteUrl) {
+  if (!salesEnabled || !supabaseUrl || !serviceRoleKey || !shopId || !secretKey || !siteUrl || !["test", "live"].includes(mode)) {
     return json({ error: "Платёжный сервис ещё не настроен." }, 503);
+  }
+  if (mode === "live" && !liveSalesEnabled) {
+    return json({ error: "Приём реальных платежей ещё не включён." }, 503);
   }
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
@@ -29,9 +34,19 @@ Deno.serve(async (request: Request) => {
   if (userError || !user) return json({ error: "Сессия недействительна. Войдите снова." }, 401);
 
   const { data: entitlement, error: entitlementError } = await admin
-    .from("pro_entitlements").select("user_id").eq("user_id", user.id).maybeSingle();
+    .from("pro_entitlements").select("user_id,payment_id").eq("user_id", user.id).maybeSingle();
   if (entitlementError) return json({ error: "Не удалось проверить статус Pro." }, 500);
-  if (entitlement) return json({ error: "LifePlan Pro уже активирован." }, 409);
+  if (entitlement) {
+    const { data: priorPayment, error: priorPaymentError } = await admin
+      .from("pro_payments")
+      .select("status,is_test")
+      .eq("payment_id", entitlement.payment_id)
+      .maybeSingle();
+    if (priorPaymentError) return json({ error: "Не удалось проверить предыдущий платёж." }, 500);
+    if (priorPayment && priorPayment.is_test === false && priorPayment.status === "succeeded") {
+      return json({ error: "LifePlan Pro уже активирован." }, 409);
+    }
+  }
 
   const idempotenceKey = crypto.randomUUID();
   const credentials = btoa(`${shopId}:${secretKey}`);
@@ -58,12 +73,17 @@ Deno.serve(async (request: Request) => {
     console.error("YooKassa payment creation failed:", payment);
     return json({ error: "ЮKassa не смогла создать платёж. Проверьте настройки магазина." }, 502);
   }
+  if (payment.test !== (mode === "test")) {
+    console.error("YooKassa payment mode does not match configured mode.");
+    return json({ error: "Режим магазина ЮKassa не совпадает с настройками LifePlan." }, 502);
+  }
 
   const { error: insertError } = await admin.from("pro_payments").insert({
     payment_id: payment.id,
     user_id: user.id,
     amount: 199,
     status: payment.status,
+    is_test: mode === "test",
   });
   if (insertError) {
     console.error("Could not record pending YooKassa payment:", insertError);
