@@ -1111,6 +1111,9 @@ document.getElementById("buy-pro-button").addEventListener("click", async () => 
                 details = "";
             }
         }
+        if (!details && Number.isInteger(error?.context?.status)) {
+            details = `Сервис оплаты вернул ошибку ${error.context.status}.`;
+        }
         message.textContent = details || error.message || "Не удалось начать оплату.";
     } finally {
         button.disabled = false;
