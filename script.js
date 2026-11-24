@@ -1102,7 +1102,16 @@ document.getElementById("buy-pro-button").addEventListener("click", async () => 
         if (!result?.confirmationUrl) throw new Error(result?.error || "Не получена ссылка на оплату.");
         window.location.assign(result.confirmationUrl);
     } catch (error) {
-        message.textContent = error.message || "Не удалось начать оплату.";
+        let details = "";
+        if (error?.context && typeof error.context.clone === "function") {
+            try {
+                const payload = await error.context.clone().json();
+                details = payload?.error || payload?.message || "";
+            } catch {
+                details = "";
+            }
+        }
+        message.textContent = details || error.message || "Не удалось начать оплату.";
     } finally {
         button.disabled = false;
     }
